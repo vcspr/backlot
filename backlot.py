@@ -235,6 +235,82 @@ def cmd_stats(args):
     print()
 
 
+
+
+def cmd_serve(_args):
+    """MCP server mode: JSON-RPC over stdio, so AI agents query the index natively.
+    Register with any MCP client as: python3 backlot.py serve"""
+    idx = _load()
+
+    def find(query, type_filter=None, limit=25):
+        q = query.lower()
+        hits = []
+        for it in idx["items"]:
+            score = (3 if q in it["name"].lower() else 0) + (1 if q in it["category"].lower() else 0)
+            if type_filter and not it["type"].startswith(type_filter):
+                continue
+            if score:
+                hits.append((score, it))
+        hits.sort(key=lambda h: (-h[0], h[1]["name"].lower()))
+        return [h[1] for h in hits[:limit]]
+
+    def stats():
+        counts = {}
+        for it in idx["items"]:
+            counts[it["type"]] = counts.get(it["type"], 0) + 1
+        return {"scanned_at": idx["scanned_at"], "total": idx["count"], "by_type": counts}
+
+    TOOLS = [
+        {"name": "find_assets",
+         "description": "Search every creative asset installed on this machine (AE presets, Resolve templates, LUTs, audio plugins, fonts).",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "search text, e.g. 'glitch'"},
+             "type": {"type": "string", "description": "optional filter: ae-preset, resolve, lut, audio-plugin, font"},
+             "limit": {"type": "integer", "default": 25}}, "required": ["query"]}},
+        {"name": "asset_stats",
+         "description": "Counts of installed creative assets by type.",
+         "inputSchema": {"type": "object", "properties": {}}},
+    ]
+
+    def reply(msg_id, result=None, error=None):
+        out = {"jsonrpc": "2.0", "id": msg_id}
+        if error:
+            out["error"] = error
+        else:
+            out["result"] = result
+        sys.stdout.write(json.dumps(out) + "\n")
+        sys.stdout.flush()
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        method, msg_id = msg.get("method"), msg.get("id")
+        if method == "initialize":
+            reply(msg_id, {"protocolVersion": "2024-11-05",
+                           "capabilities": {"tools": {}},
+                           "serverInfo": {"name": "backlot", "version": "0.2.0"}})
+        elif method == "tools/list":
+            reply(msg_id, {"tools": TOOLS})
+        elif method == "tools/call":
+            name = msg["params"]["name"]
+            args = msg["params"].get("arguments", {})
+            if name == "find_assets":
+                data = find(args.get("query", ""), args.get("type"), args.get("limit", 25))
+            elif name == "asset_stats":
+                data = stats()
+            else:
+                reply(msg_id, error={"code": -32601, "message": f"unknown tool {name}"})
+                continue
+            reply(msg_id, {"content": [{"type": "text", "text": json.dumps(data, indent=1)}]})
+        elif msg_id is not None:
+            reply(msg_id, error={"code": -32601, "message": f"unknown method {method}"})
+
+
 def main():
     ap = argparse.ArgumentParser(description="Index every creative asset installed on your machine.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -246,8 +322,9 @@ def main():
     f.add_argument("--json", action="store_true", help="machine/agent-readable output")
     s = sub.add_parser("stats", help="counts per asset type")
     s.add_argument("--json", action="store_true")
+    sub.add_parser("serve", help="MCP server mode (JSON-RPC over stdio) for AI agents")
     args = ap.parse_args()
-    {"scan": cmd_scan, "find": cmd_find, "stats": cmd_stats}[args.cmd](args)
+    {"scan": cmd_scan, "find": cmd_find, "stats": cmd_stats, "serve": cmd_serve}[args.cmd](args)
 
 
 if __name__ == "__main__":

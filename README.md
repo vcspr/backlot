@@ -53,6 +53,14 @@ share and diff.
 python3 backlot.py find "film grain" --type lut --json
 ```
 
+And it IS an MCP server. `serve` speaks JSON-RPC over stdio with two tools
+(`find_assets`, `asset_stats`), no dependencies, so Claude or any MCP client
+can ask "what glitch transitions do I own?" mid-conversation:
+
+```json
+{ "mcpServers": { "backlot": { "command": "python3", "args": ["/path/to/backlot.py", "serve"] } } }
+```
+
 ## Why
 
 Asset hoarding is universal; asset *recall* is rare. The difference between
@@ -65,7 +73,6 @@ the agent.
 
 - Windows paths
 - Premiere / Final Cut template scanners
-- `backlot serve` — MCP server mode, so agents query the index natively
 - Duplicate finder (same LUT in four packs)
 
 ## License
