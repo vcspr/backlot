@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """backlot — index every creative asset installed on your machine.
 
-One file. No dependencies. Four commands.
+One file. No dependencies.
 
     python3 backlot.py scan            # walk the machine, write backlot-index.json
     python3 backlot.py find "glitch"   # search everything you own
