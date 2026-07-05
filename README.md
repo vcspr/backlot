@@ -22,6 +22,7 @@ curl -O https://raw.githubusercontent.com/vcspr/backlot/main/backlot.py
 python3 backlot.py scan
 python3 backlot.py find "glitch"
 python3 backlot.py stats
+python3 backlot.py dupes            # the same asset in more than one pack
 ```
 
 ## What it scans
@@ -73,7 +74,7 @@ the agent.
 
 - Windows paths
 - Premiere / Final Cut template scanners
-- Duplicate finder (same LUT in four packs)
+- ~~Duplicate finder (same LUT in four packs)~~ — shipped: `backlot.py dupes` (+ `find_dupes` MCP tool)
 
 ## License
 

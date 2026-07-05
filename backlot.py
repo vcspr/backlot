@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """backlot — index every creative asset installed on your machine.
 
-One file. No dependencies. Three commands.
+One file. No dependencies. Four commands.
 
     python3 backlot.py scan            # walk the machine, write backlot-index.json
     python3 backlot.py find "glitch"   # search everything you own
     python3 backlot.py stats           # what is actually on this machine
+    python3 backlot.py dupes           # the same asset installed in more than one pack
 
 Scans (macOS paths, extendable via backlot.config.json):
   ae-preset     After Effects .ffx presets (app + user)
@@ -235,6 +236,40 @@ def cmd_stats(args):
     print()
 
 
+def _dupe_groups(items, type_filter=None):
+    """Group by (type, lowercased name); return [(type, name, [items])] with >1 copy,
+    most-copied first. That is 'the same LUT in four packs' made visible."""
+    groups = {}
+    for it in items:
+        if type_filter and not it["type"].startswith(type_filter):
+            continue
+        groups.setdefault((it["type"], it["name"].lower()), []).append(it)
+    dups = [(k[0], v[0]["name"], v) for k, v in groups.items() if len(v) > 1]
+    dups.sort(key=lambda g: (-len(g[2]), g[1].lower()))
+    return dups
+
+
+def cmd_dupes(args):
+    dups = _dupe_groups(_load()["items"], args.type)
+    extra = sum(len(v) - 1 for _, _, v in dups)  # copies beyond one keeper
+
+    if args.json:
+        out = [{"type": kind, "name": name, "copies": len(v),
+                "sources": sorted({i["source"] for i in v}),
+                "paths": [i["path"] for i in v]} for kind, name, v in dups[: args.limit]]
+        print(json.dumps({"duplicated": len(dups), "extra_copies": extra, "groups": out}, indent=1))
+        return
+    if not dups:
+        print("\nno duplicates found — every asset name is unique within its type\n")
+        return
+    print(f"\n{len(dups):,} assets are duplicated · {extra:,} extra copies\n")
+    for kind, name, v in dups[: args.limit]:
+        srcs = ", ".join(sorted({i["source"] for i in v}))
+        print(f"── {name}  ({kind}) x{len(v)}")
+        print(f"     across: {srcs}")
+        for i in v:
+            print(f"     {i['path']}")
+    print(f"\n{min(len(dups), args.limit)} of {len(dups)} shown")
 
 
 def cmd_serve(_args):
@@ -260,6 +295,13 @@ def cmd_serve(_args):
             counts[it["type"]] = counts.get(it["type"], 0) + 1
         return {"scanned_at": idx["scanned_at"], "total": idx["count"], "by_type": counts}
 
+    def dupes(type_filter=None, limit=40):
+        groups = _dupe_groups(idx["items"], type_filter)
+        return {"duplicated": len(groups), "extra_copies": sum(len(v) - 1 for _, _, v in groups),
+                "groups": [{"type": k, "name": n, "copies": len(v),
+                            "sources": sorted({i["source"] for i in v}),
+                            "paths": [i["path"] for i in v]} for k, n, v in groups[:limit]]}
+
     TOOLS = [
         {"name": "find_assets",
          "description": "Search every creative asset installed on this machine (AE presets, Resolve templates, LUTs, audio plugins, fonts).",
@@ -270,6 +312,11 @@ def cmd_serve(_args):
         {"name": "asset_stats",
          "description": "Counts of installed creative assets by type.",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "find_dupes",
+         "description": "Find assets installed in more than one place (e.g. the same LUT in four packs).",
+         "inputSchema": {"type": "object", "properties": {
+             "type": {"type": "string", "description": "optional filter: ae-preset, resolve, lut, audio-plugin, font"},
+             "limit": {"type": "integer", "default": 40}}}},
     ]
 
     def reply(msg_id, result=None, error=None):
@@ -303,6 +350,8 @@ def cmd_serve(_args):
                 data = find(args.get("query", ""), args.get("type"), args.get("limit", 25))
             elif name == "asset_stats":
                 data = stats()
+            elif name == "find_dupes":
+                data = dupes(args.get("type"), args.get("limit", 40))
             else:
                 reply(msg_id, error={"code": -32601, "message": f"unknown tool {name}"})
                 continue
@@ -322,9 +371,13 @@ def main():
     f.add_argument("--json", action="store_true", help="machine/agent-readable output")
     s = sub.add_parser("stats", help="counts per asset type")
     s.add_argument("--json", action="store_true")
+    d = sub.add_parser("dupes", help="find assets installed in more than one place")
+    d.add_argument("--type", help="filter: ae-preset, resolve, lut, audio-plugin, font")
+    d.add_argument("--limit", type=int, default=40)
+    d.add_argument("--json", action="store_true", help="machine/agent-readable output")
     sub.add_parser("serve", help="MCP server mode (JSON-RPC over stdio) for AI agents")
     args = ap.parse_args()
-    {"scan": cmd_scan, "find": cmd_find, "stats": cmd_stats, "serve": cmd_serve}[args.cmd](args)
+    {"scan": cmd_scan, "find": cmd_find, "stats": cmd_stats, "dupes": cmd_dupes, "serve": cmd_serve}[args.cmd](args)
 
 
 if __name__ == "__main__":
